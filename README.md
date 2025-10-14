@@ -63,6 +63,8 @@ pub fn main() !void {
     try stderr.flush();
 ```
 
+[bcm2712-rpi-5-b.dtb example](https://github.com/Haeryu/dtb_parser/blob/5755a7b57160ccc1fb70449c401a5de847dd3ba8/dtb_dump_example.txt)
+
 ## Limitations
 - Fixed-size only (risk OOM on large DTBs). Need a heuristic.
 - Parse-only, no builder.
