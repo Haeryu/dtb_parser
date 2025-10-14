@@ -1,10 +1,12 @@
 const std = @import("std");
 const FDT = @import("fdt.zig").FDT;
 const DTBConfig = @import("dtb.zig").DTBConfig;
-const DTB = @import("dtb.zig");
+const DTB = @import("dtb.zig").DTB;
 
 test "parse bcm2712-rpi-5-b DTB" {
-    const config: DTBConfig = .{
+    const raw = @embedFile("test_res/bcm2712-rpi-5-b.dtb");
+
+    var dtb: DTB(.{
         .max_nodes = 1024,
         .max_roots = 1,
         .max_properties = 4096,
@@ -12,11 +14,7 @@ test "parse bcm2712-rpi-5-b DTB" {
         .max_properties_per_node = 1024,
         .max_name_len = 128,
         .max_property_name_len = 128,
-    };
-
-    const raw = @embedFile("test_res/bcm2712-rpi-5-b.dtb");
-
-    var dtb: DTB(config) = undefined;
+    }) = undefined;
     dtb.init(raw);
     try dtb.parse();
 
