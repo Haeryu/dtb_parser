@@ -341,12 +341,12 @@ pub fn DTB(comptime config: DTBConfig) type {
 
         pub fn findNodeIndex(self: *const DTBType, node_name: []const u8) ?u32 {
             for (&self.nodes_len, 0..) |len, depth| {
-                const node_depth_start = getNodeDepthStart(depth);
+                const node_depth_start = getNodeDepthStart(@intCast(depth));
 
                 for (0..len) |i| {
                     const node_index = node_depth_start + i;
-                    if (std.mem.eql(u8, self.getNodeName(node_index), node_name)) {
-                        return node_index;
+                    if (std.mem.eql(u8, self.getNodeName(@intCast(node_index)), node_name)) {
+                        return @intCast(node_index);
                     }
                 }
             }

@@ -96,8 +96,9 @@ pub fn main() !void {
 
     std.debug.print("{any}\n{any}\n", .{ node_depth_array, property_depth_array });
 ```
+  result
 ```
-...(snipped)
+...
     aux = "/dummy";
     dummy = "/dummy";
     i2c0if = "/i2c0if";

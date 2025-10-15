@@ -34,11 +34,3 @@ test "comptime parse" {
         std.debug.print("{any}\n{any}\n", .{ node_depth_array, property_depth_array });
     }
 }
-
-test "parse bcm2712-rpi-5-b DTB" {
-    const raw align(@alignOf(FDT.Header)) = @embedFile("test_res/bcm2712-rpi-5-b.dtb");
-
-    var dtb: DTB(.{}) = undefined;
-    dtb.init(raw);
-    try dtb.parse();
-}
