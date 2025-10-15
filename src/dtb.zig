@@ -5,8 +5,8 @@ const std = @import("std");
 const FDT = @import("fdt.zig").FDT;
 
 pub const DTBConfig = struct {
-    node_depth_array: []const u32 = &.{ 1, 1024, 1024, 1024, 1024, 1024, 1024, 1024 },
-    property_depth_array: []const u32 = &.{ 1, 1024, 1024, 1024, 1024, 1024, 1024, 1024 },
+    node_depth_array: []const u32 = &.{ 1, 1024, 1024, 1024, 1024, 1024, 1024 },
+    property_depth_array: []const u32 = &.{ 1024, 1024, 1024, 1024, 1024, 1024, 1024 },
 
     max_name_len: u32 = 64,
     max_property_name_len: u32 = 64,
@@ -145,6 +145,10 @@ pub fn DTB(comptime config: DTBConfig) type {
 
                     switch (token) {
                         .begin_node => {
+                            if (current_depth >= config.node_depth_array.len) {
+                                return DTBError.OOM;
+                            }
+
                             const name_start_offset = current_token_offset + @sizeOf(FDT.Token);
                             if (name_start_offset >= dt_struct_size) {
                                 return FDT.Error.Truncated;
@@ -183,10 +187,6 @@ pub fn DTB(comptime config: DTBConfig) type {
                             // | token | nul terminated c string | next ..
                             current_token_offset +=
                                 @sizeOf(FDT.Token) + std.mem.alignForward(u32, name_size, 4);
-
-                            if (current_depth + 1 >= config.node_depth_array.len) {
-                                return DTBError.OOM;
-                            }
 
                             current_depth += 1;
                         },
@@ -265,8 +265,12 @@ pub fn DTB(comptime config: DTBConfig) type {
                                 return FDT.Error.EmptyPropertyName;
                             }
 
+                            const prop_depth: u32 = blk: {
+                                const idx = current_node_index orelse return FDT.Error.OrphanProperty;
+                                break :blk self.nodes[idx].depth; // 노드에 저장된 실제 depth
+                            };
                             _ = try self.createProperty(
-                                current_depth,
+                                prop_depth,
                                 current_node_index,
                                 abs_strings_start + property_name_start_offset,
                                 abs_strings_start + property_name_end_offset,

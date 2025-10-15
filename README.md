@@ -70,7 +70,7 @@ pub fn main() !void {
     @setEvalBranchQuota(999999);
     comptime var dtb_ct: DTB(.{}) = undefined;
     comptime dtb_ct.init(raw);
-    comptime try dtb_ct.parse();
+    comptime dtb_ct.parse() catch unreachable;
 
     const node_depth_array = dtb_ct.nodes_len;
     const property_depth_array = dtb_ct.properties_len;
@@ -108,8 +108,8 @@ pub fn main() !void {
   };
 };
 
-{ 1, 35, 92, 36, 66, 63, 26, 0 }
-{ 0, 5, 601, 668, 143, 590, 242, 90 }
+{ 1, 35, 92, 36, 66, 63, 26 }
+{ 5, 601, 668, 143, 590, 242, 90 }
 ```
 
 - Parse-only, no builder.

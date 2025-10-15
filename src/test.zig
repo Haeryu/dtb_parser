@@ -4,14 +4,14 @@ const DTBConfig = @import("dtb.zig").DTBConfig;
 const DTB = @import("dtb.zig").DTB;
 
 test "comptime parse" {
-    if (false) {
+    if (true) {
         const raw align(@alignOf(FDT.Header)) = @embedFile("test_res/bcm2712-rpi-5-b.dtb");
 
         // sorry compiler...
         @setEvalBranchQuota(999999);
         comptime var dtb_ct: DTB(.{}) = undefined;
         comptime dtb_ct.init(raw);
-        comptime try dtb_ct.parse();
+        comptime dtb_ct.parse() catch unreachable;
 
         const node_depth_array = dtb_ct.nodes_len;
         const property_depth_array = dtb_ct.properties_len;
