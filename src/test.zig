@@ -22,7 +22,7 @@ test "parse bcm2712-rpi-5-b DTB" {
     var stdout_writer = std.fs.File.stderr().writer(&stderr_buffer);
     const stderr = &stdout_writer.interface;
 
-    try dtb.dumpTree(stderr);
+    try dtb.debugDump(stderr);
 
     try stderr.flush();
 

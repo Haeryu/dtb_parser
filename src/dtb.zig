@@ -170,8 +170,8 @@ pub fn DTB(comptime config: DTBConfig) type {
 
                             const new_node_index = try self.createNode(
                                 current_depth,
-                                name_start_offset,
-                                name_end_offset,
+                                abs_struct_start + name_start_offset,
+                                abs_struct_start + name_end_offset,
                                 parent_node_index,
                             );
 
@@ -268,10 +268,10 @@ pub fn DTB(comptime config: DTBConfig) type {
                             _ = try self.createProperty(
                                 current_depth,
                                 current_node_index,
-                                property_name_start_offset,
-                                property_name_end_offset,
-                                val_start_offset,
-                                val_end_offset,
+                                abs_strings_start + property_name_start_offset,
+                                abs_strings_start + property_name_end_offset,
+                                abs_struct_start + val_start_offset,
+                                abs_struct_start + val_end_offset,
                             );
 
                             const property_string_len = val_end_offset - val_start_offset;
@@ -507,6 +507,128 @@ pub fn DTB(comptime config: DTBConfig) type {
             }
 
             return new_property_index;
+        }
+
+        pub fn debugDump(
+            self: *const DTBType,
+            writer: *std.Io.Writer,
+        ) !void {
+            try writer.print("/dtb/;\n", .{});
+
+            const root_count = self.nodes_len[0];
+            for (0..root_count) |i| {
+                const root_idx: u32 = @intCast(i);
+                try self.printNode(writer, root_idx, 0);
+            }
+
+            try writer.print("\n", .{});
+        }
+
+        fn printNode(
+            self: *const DTBType,
+            writer: *std.Io.Writer,
+            node_idx: u32,
+            indent_level: u32,
+        ) !void {
+            const node = self.nodes[node_idx];
+            const name = self.getNodeName(node_idx);
+
+            const spaces: [512]u8 = @splat(' ');
+            const indent_len = @min(indent_level * 2, spaces.len);
+            const indent = spaces[0..indent_len];
+
+            try writer.print("{s}{s} {{\n", .{ indent, name });
+
+            for (node.property_indices_start..node.property_indices_end) |prop_idx| {
+                const prop_name = self.getPropertyName(@intCast(prop_idx));
+                const prop_val = self.getPropertyValue(@intCast(prop_idx));
+
+                if (prop_val.len == 0) {
+                    try writer.print("{s}  {s};\n", .{ indent, prop_name });
+                    continue;
+                }
+
+                if (isStringListProperty(prop_val)) {
+                    try writer.print("{s}  {s} = ", .{ indent, prop_name });
+                    try printStringList(writer, prop_val);
+                } else if (isStringProperty(prop_val)) {
+                    try writer.print("{s}  {s} = ", .{ indent, prop_name });
+                    const trimmed = std.mem.trimRight(u8, prop_val, "\x00");
+                    if (std.mem.eql(u8, trimmed, "<NULL>")) {
+                        try writer.print("<null>;\n", .{});
+                    } else {
+                        try writer.print("\"{s}\";\n", .{trimmed});
+                    }
+                } else {
+                    try writer.print("{s}  {s} = <", .{ indent, prop_name });
+                    const val_len = prop_val.len;
+                    var i: usize = 0;
+                    while (i < val_len) : (i += 4) {
+                        if (i > 0) try writer.print(" ", .{});
+                        const remaining = val_len - i;
+                        if (remaining >= 4) {
+                            const word = std.mem.readInt(
+                                u32,
+                                @ptrCast(prop_val[i .. i + 4].ptr),
+                                .big,
+                            );
+                            try writer.print("0x{x}", .{word});
+                        } else {
+                            var buf: [4]u8 = undefined;
+                            @memcpy(buf[0..remaining], prop_val[i..]);
+                            @memset(buf[remaining..], 0);
+                            const word = std.mem.readInt(u32, &buf, .big);
+                            try writer.print("0x{x}", .{word});
+                        }
+                    }
+                    try writer.print(">;\n", .{});
+                }
+            }
+
+            for (node.child_indices_start..node.child_indices_end) |child_idx| {
+                try self.printNode(writer, @intCast(child_idx), indent_level + 1);
+            }
+
+            try writer.print("{s}}};\n", .{indent});
+        }
+
+        fn isStringProperty(val: []const u8) bool {
+            if (val.len == 0) return false;
+            if (val[val.len - 1] != 0) return false;
+            for (val[0 .. val.len - 1]) |byte| {
+                if (byte < 32 or byte > 126) return false;
+            }
+            return true;
+        }
+
+        fn isStringListProperty(val: []const u8) bool {
+            if (val.len == 0 or val[val.len - 1] != 0) return false;
+            var has_non_null = false;
+            var i: usize = 0;
+            while (i < val.len) : (i += 1) {
+                if (val[i] == 0) continue;
+                has_non_null = true;
+                if (val[i] < 32 or val[i] > 126) return false;
+            }
+            return has_non_null and (val.len > 1);
+        }
+
+        fn printStringList(writer: anytype, val: []const u8) !void {
+            var i: usize = 0;
+            var first = true;
+            while (i < val.len) {
+                const start = i;
+                while (i < val.len and val[i] != 0) : (i += 1) {}
+                if (i == start) {
+                    i += 1;
+                    continue;
+                }
+                if (!first) try writer.print(", ", .{});
+                try writer.print("\"{s}\"", .{val[start..i]});
+                first = false;
+                i += 1;
+            }
+            try writer.print(";\n", .{});
         }
     };
 }
