@@ -155,15 +155,15 @@ pub fn DTB(comptime config: DTBConfig) type {
                             }
 
                             const name_slice = structure_block[name_start_offset..];
-                            const name_len: u32 =
-                                loop: for (0..@min(
+                            const idx = std.mem.indexOfScalar(
+                                u8,
+                                name_slice[0..@min(
                                     name_slice.len,
                                     @as(usize, config.max_name_len),
-                                )) |i| {
-                                    if (name_slice[i] == 0) {
-                                        break :loop @intCast(i);
-                                    }
-                                } else return FDT.Error.NonNullTerminatedName;
+                                )],
+                                0,
+                            ) orelse return FDT.Error.NonNullTerminatedName;
+                            const name_len: u32 = @intCast(idx);
                             const name_end_offset = name_start_offset + name_len;
 
                             if (name_len == 0 and current_depth > 0) {
@@ -250,14 +250,17 @@ pub fn DTB(comptime config: DTBConfig) type {
 
                             const property_name_slice: []const u8 =
                                 strings_block[property_name_start_offset..];
-                            const property_name_len: u32 = loop: for (0..@min(
-                                property_name_slice.len,
-                                @as(usize, config.max_property_name_len),
-                            )) |i| {
-                                if (property_name_slice[i] == 0) {
-                                    break :loop @intCast(i);
-                                }
-                            } else return FDT.Error.NonNullTerminatedName;
+
+                            const idx = std.mem.indexOfScalar(
+                                u8,
+                                property_name_slice[0..@min(
+                                    property_name_slice.len,
+                                    @as(usize, config.max_property_name_len),
+                                )],
+                                0,
+                            ) orelse return FDT.Error.NonNullTerminatedName;
+                            const property_name_len: u32 = @intCast(idx);
+
                             const property_name_end_offset =
                                 property_name_start_offset + property_name_len;
 
@@ -266,8 +269,9 @@ pub fn DTB(comptime config: DTBConfig) type {
                             }
 
                             const prop_depth: u32 = blk: {
-                                const idx = current_node_index orelse return FDT.Error.OrphanProperty;
-                                break :blk self.nodes[idx].depth; // 노드에 저장된 실제 depth
+                                const i =
+                                    current_node_index orelse return FDT.Error.OrphanProperty;
+                                break :blk self.nodes[i].depth;
                             };
                             _ = try self.createProperty(
                                 prop_depth,
