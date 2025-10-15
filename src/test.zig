@@ -34,3 +34,47 @@ test "comptime parse" {
         std.debug.print("{any}\n{any}\n", .{ node_depth_array, property_depth_array });
     }
 }
+
+test "parse root node" {
+    const raw = @embedFile("test_res/bcm2712-rpi-5-b.dtb");
+
+    var dtb: DTB(.{}) = undefined;
+    dtb.init(raw);
+    try dtb.parse();
+
+    try std.testing.expectEqual(@as(u32, 1), dtb.nodes_len[0]);
+
+    const root_name = dtb.getNodeName(0);
+    try std.testing.expect(std.mem.eql(u8, root_name, ""));
+}
+
+test "find node by name" {
+    const raw = @embedFile("test_res/bcm2712-rpi-5-b.dtb");
+
+    var dtb: DTB(.{}) = undefined;
+    dtb.init(raw);
+    try dtb.parse();
+
+    if (dtb.findNodeIndex("cpus")) |i| {
+        const name = dtb.getNodeName(i);
+        try std.testing.expect(std.mem.eql(u8, name, "cpus"));
+    } else {
+        unreachable;
+    }
+
+    if (dtb.findNodeIndex("clk_xosc")) |i| {
+        const name = dtb.getNodeName(i);
+        try std.testing.expect(std.mem.eql(u8, name, "clk_xosc"));
+    } else {
+        unreachable;
+    }
+
+    if (dtb.findNodeIndex("pcie@1000110000")) |i| {
+        const name = dtb.getNodeName(i);
+        try std.testing.expect(std.mem.eql(u8, name, "pcie@1000110000"));
+    } else {
+        unreachable;
+    }
+
+    try std.testing.expectEqual(null, dtb.findNodeIndex("nonexistent_node"));
+}
