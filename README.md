@@ -67,4 +67,52 @@ pub fn main() !void {
 
 ## Limitations
 - Fixed-size only (risk OOM on large DTBs). Need a heuristic.
+
+     -> or do thing like this
+``` zig
+    // sorry compiler...
+    @setEvalBranchQuota(999999);
+    comptime var dtb_ct: DTB(.{}) = undefined;
+    comptime dtb_ct.init(raw);
+    comptime try dtb_ct.parse();
+
+    const node_depth_array = dtb_ct.nodes_len;
+    const property_depth_array = dtb_ct.properties_len;
+
+    var dtb: DTB(.{
+        .node_depth_array = &node_depth_array,
+        .property_depth_array = &property_depth_array,
+    }) = undefined;
+    dtb.init(raw);
+    try dtb.parse();
+
+    var stderr_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stderr().writer(&stderr_buffer);
+    const stderr = &stdout_writer.interface;
+
+    try dtb.debugDump(stderr);
+
+    try stderr.flush();
+
+    std.debug.print("{any}\n{any}\n", .{ node_depth_array, property_depth_array });
+```
+```
+...(snipped)
+    aux = "/dummy";
+    dummy = "/dummy";
+    i2c0if = "/i2c0if";
+    i2c0mux = "/i2c0mux";
+    rp1_firmware = "/rp1_firmware";
+    rp1_vdd_3v3 = "/rp1_vdd_3v3";
+    chosen = "/chosen";
+    aliases = "/aliases";
+    fan = "/cooling_fan";
+    pwr_key = "/pwr_button/pwr";
+  };
+};
+
+{ 1, 35, 92, 36, 66, 63, 26, 0 }
+{ 0, 5, 601, 668, 143, 590, 242, 90 }
+```
+
 - Parse-only, no builder.
