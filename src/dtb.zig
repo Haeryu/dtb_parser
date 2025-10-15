@@ -322,10 +322,7 @@ pub fn DTB(comptime config: DTBConfig) type {
             if (node.depth + 1 >= config.node_depth_array.len) {
                 return &.{};
             }
-            const child_depth_start = getNodeDepthStart(node.depth + 1);
-
-            return self
-                .nodes[child_depth_start..][node.child_indices_start..node.child_indices_end];
+            return self.nodes[node.child_indices_start..node.child_indices_end];
         }
 
         pub fn getPropertyName(self: *const DTBType, prop_idx: u32) []const u8 {
