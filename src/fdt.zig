@@ -1,6 +1,7 @@
-const std = @import("std");
-
+// reference
 // https://devicetree-specification.readthedocs.io/en/stable/flattened-format.html
+
+const std = @import("std");
 
 pub const FDT = struct {
     pub const Error = error{
