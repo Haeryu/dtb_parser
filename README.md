@@ -97,7 +97,17 @@ pub fn main() !void {
     const stderr = &stderr_writer.interface;
 
     try dtb.debugDump(&stderr_writer.interface);
-    try stderr.print("{any}\n{any}\n", .{ node_depth_array, property_depth_array });
+    try stderr.print(
+        \\total memory usage of dtb parser = {}
+        \\dtb input bytes (raw_bytes.len)  = {}
+        \\node_depth_array                 = {any}
+        \\property_depth_array             = {any}
+    , .{
+        @sizeOf(@TypeOf(dtb)),
+        dtb.raw_bytes.len,
+        node_depth_array,
+        property_depth_array,
+    });
 
     try stderr.flush();
 ```
@@ -117,8 +127,10 @@ pub fn main() !void {
   };
 };
 
-{ 1, 35, 92, 36, 66, 63, 26 }
-{ 5, 601, 668, 143, 590, 242, 90 }
+total memory usage of dtb parser = 48984
+dtb input bytes (raw_bytes.len)  = 78723
+node_depth_array                 = { 1, 35, 92, 36, 66, 63, 26 }
+property_depth_array             = { 5, 601, 668, 143, 590, 242, 90 }
 ```
 
 - Parse-only, no builder.

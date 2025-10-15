@@ -28,7 +28,17 @@ test "comptime parse" {
         const stderr = &stderr_writer.interface;
 
         try dtb.debugDump(&stderr_writer.interface);
-        try stderr.print("{any}\n{any}\n", .{ node_depth_array, property_depth_array });
+        try stderr.print(
+            \\total memory usage of dtb parser = {}
+            \\dtb input bytes (raw_bytes.len)  = {}
+            \\node_depth_array                 = {any}
+            \\property_depth_array             = {any}
+        , .{
+            @sizeOf(@TypeOf(dtb)),
+            dtb.raw_bytes.len,
+            node_depth_array,
+            property_depth_array,
+        });
 
         try stderr.flush();
     }
