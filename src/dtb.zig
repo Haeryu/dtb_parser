@@ -359,6 +359,33 @@ pub fn DTB(comptime config: DTBConfig) type {
             return null;
         }
 
+        pub fn findPropertyIndexInNode(
+            self: *const DTBType,
+            node_idx: u32,
+            prop_name: []const u8,
+        ) ?u32 {
+            const n = self.nodes[node_idx];
+            var i: u32 = n.property_indices_start;
+            while (i < n.property_indices_end) : (i += 1) {
+                if (std.mem.eql(u8, self.getPropertyName(i), prop_name)) return i;
+            }
+            return null;
+        }
+
+        pub fn findFirstMatchPropertyIndex(self: *const DTBType, prop_name: []const u8) ?u32 {
+            for (&self.properties_len, 0..) |len, depth| {
+                const prop_depth_start: u32 = getPropertyDepthStart(@intCast(depth));
+
+                for (0..len) |i| {
+                    const prop_index: u32 = prop_depth_start + i;
+                    if (std.mem.eql(u8, self.getPropertyName(prop_index), prop_name)) {
+                        return prop_index;
+                    }
+                }
+            }
+            return null;
+        }
+
         fn getNodeDepthStart(i: u32) u32 {
             std.debug.assert(i < config.node_depth_array.len);
 

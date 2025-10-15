@@ -65,6 +65,10 @@ test "find node by name" {
     if (dtb.findNodeIndex("clk_xosc")) |i| {
         const name = dtb.getNodeName(i);
         try std.testing.expect(std.mem.eql(u8, name, "clk_xosc"));
+        if (dtb.findPropertyIndexInNode(i, "clock-frequency")) |prop_i| {
+            const prop_name = dtb.getPropertyName(prop_i);
+            try std.testing.expect(std.mem.eql(u8, prop_name, "clock-frequency"));
+        }
     } else {
         unreachable;
     }
