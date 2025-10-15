@@ -95,10 +95,9 @@ pub fn main() !void {
     const stderr = &stderr_writer.interface;
 
     try dtb.debugDump(&stderr_writer.interface);
+    try stderr.print("{any}\n{any}\n", .{ node_depth_array, property_depth_array });
 
     try stderr.flush();
-
-    std.debug.print("{any}\n{any}\n", .{ node_depth_array, property_depth_array });
 ```
   result
 ```
