@@ -36,29 +36,24 @@ const DTB = @import("dtb_parser").dtb.DTB;
 pub fn main() !void {
     const raw = ...; // Load your DTB bytes
 
-    var dtb: DTB(.{
-        .max_nodes = 1024,
-        .max_roots = 1,
-        .max_properties = 4096,
-        // Other defaults: max_childs_per_node=32, etc.
-    }) = undefined;
+    var dtb: DTB(.{}) = undefined;
     dtb.init(raw);
     try dtb.parse();
 
     // Query example
-    if (dtb.findNode("chosen")) |idx| {
-        std.debug.print("Node: {s}\n", .{dtb.nodes[idx].name});
-    }
+     if (dtb.findNodeIndex("cpus")) |i| {
+        const name = dtb.getNodeName(i);
+        ...
+    } 
 }
 ```
 
 ### Dump
 ```zig
     var stderr_buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stderr().writer(&stderr_buffer);
-    const stderr = &stdout_writer.interface;
+    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
 
-    try dtb.debugDump(stderr);
+    try dtb.debugDump(&stderr_writer.interface);
 
     try stderr.flush();
 ```
