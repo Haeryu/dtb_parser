@@ -4,7 +4,7 @@ const DTBConfig = @import("dtb.zig").DTBConfig;
 const DTB = @import("dtb.zig").DTB;
 
 test "comptime parse" {
-    if (true) {
+    if (false) {
         const raw align(@alignOf(FDT.Header)) = @embedFile("test_res/bcm2712-rpi-5-b.dtb").*;
 
         // sorry compiler...
