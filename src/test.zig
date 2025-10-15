@@ -7,13 +7,13 @@ test "parse bcm2712-rpi-5-b DTB" {
     const raw = @embedFile("test_res/bcm2712-rpi-5-b.dtb");
 
     var dtb: DTB(.{
-        .max_nodes = 1024,
-        .max_roots = 1,
-        .max_properties = 4096,
-        .max_childs_per_node = 128,
-        .max_properties_per_node = 1024,
-        .max_name_len = 128,
-        .max_property_name_len = 128,
+        // .max_nodes = 1024,
+        // .max_roots = 1,
+        // .max_properties = 4096,
+        // .max_childs_per_node = 128,
+        // .max_properties_per_node = 1024,
+        // .max_name_len = 128,
+        // .max_property_name_len = 128,
     }) = undefined;
     dtb.init(raw);
     try dtb.parse();

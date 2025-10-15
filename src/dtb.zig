@@ -5,11 +5,8 @@ const std = @import("std");
 const FDT = @import("fdt.zig").FDT;
 
 pub const DTBConfig = struct {
-    max_nodes: u32 = 512,
-    max_roots: u32 = 32,
-    max_properties: u32 = 4096,
-    max_childs_per_node: u32 = 32,
-    max_properties_per_node: u32 = 512,
+    node_depth_array: []const u32 = &.{ 1, 2, 4, 8, 16 },
+    property_depth_array: []const u32 = &.{ 1, 2, 4, 8, 16 },
 
     max_name_len: u32 = 32,
     max_property_name_len: u32 = 32,
@@ -30,89 +27,66 @@ pub fn DTB(comptime config: DTBConfig) type {
         }
     }
 
-    comptime std.debug.assert(config.max_roots <= config.max_nodes);
+    comptime std.debug.assert(config.node_depth_array.len == config.property_depth_array.len);
 
     return struct {
         raw_bytes: []const u8,
 
-        properties: [config.max_properties]Property,
-        properties_len: u32,
+        properties: [getPropertiesLen()]Property,
+        properties_len: [config.property_depth_array.len]u32,
 
-        nodes: [config.max_nodes]Node,
-        nodes_len: u32,
-
-        root_indices: [config.max_roots]u32,
-        root_indices_len: u32,
+        nodes: [getNodesLen()]Node,
+        nodes_len: [config.node_depth_array.len]u32,
 
         const DTBType = @This();
 
         pub const Node = struct {
-            name: []const u8,
+            depth: u32,
+            name_start_offset: u32,
+            name_end_offset: u32,
 
             parent_index: ?u32,
 
-            child_indices: [config.max_childs_per_node]u32,
-            child_indices_len: u32,
+            child_indices_start: u32,
+            child_indices_end: u32,
 
-            property_indices: [config.max_properties_per_node]u32,
-            property_indices_len: u32,
+            property_indices_start: u32,
+            property_indices_end: u32,
 
-            pub fn init(self: *Node, name: []const u8, parent_index: ?u32) void {
-                self.name = name;
+            pub fn init(
+                self: *Node,
+                depth: u32,
+                name_start_offset: u32,
+                name_end_offset: u32,
+                parent_index: ?u32,
+            ) void {
+                self.depth = depth;
+                self.name_start_offset = name_start_offset;
+                self.name_end_offset = name_end_offset;
                 self.parent_index = parent_index;
-                self.child_indices_len = 0;
-                self.property_indices_len = 0;
-            }
-
-            pub fn createChildIndex(self: *Node) DTBError!*u32 {
-                return try createUndefinedItemInFixedArray(
-                    "child_indices",
-                    "child_indices_len",
-                    self,
-                );
-            }
-
-            pub fn createEnsureChildIndex(self: *Node) *u32 {
-                return createEnsureUndefinedItemInFixedArray(
-                    "child_indices",
-                    "child_indices_len",
-                    self,
-                );
-            }
-
-            pub fn createPropertyIndex(self: *Node) DTBError!*u32 {
-                return try createUndefinedItemInFixedArray(
-                    "property_indices",
-                    "property_indices_len",
-                    self,
-                );
-            }
-
-            pub fn createEnsurePropertyIndex(self: *Node) *u32 {
-                return createEnsureUndefinedItemInFixedArray(
-                    "property_indices",
-                    "property_indices_len",
-                    self,
-                );
+                self.child_indices_start = 0;
+                self.child_indices_end = 0;
+                self.property_indices_start = 0;
+                self.property_indices_end = 0;
             }
         };
 
         pub const Property = struct {
-            name: []const u8,
-            val: []const u8,
+            name_start_offset: u32,
+            name_end_offset: u32,
+            val_start_offset: u32,
+            val_end_offset: u32,
         };
 
         pub fn init(self: *DTBType, raw_bytes: []const u8) void {
             self.raw_bytes = raw_bytes;
-            self.nodes_len = 0;
-            self.properties_len = 0;
-            self.root_indices_len = 0;
+            self.nodes_len = @splat(0);
+            self.properties_len = @splat(0);
 
             // poison
             if (@import("builtin").mode == .Debug) {
                 @memset(&self.nodes, undefined);
                 @memset(&self.properties, undefined);
-                @memset(&self.root_indices, undefined);
             }
         }
 
@@ -137,28 +111,25 @@ pub fn DTB(comptime config: DTBConfig) type {
 
                 const dt_struct_size = fdt_header.readSizeDtStruct();
 
-                const structure_block_start = fdt_header.readOffDtStruct();
-                const structure_block_end = structure_block_start + dt_struct_size;
-
-                if (structure_block_end > fdt_header.readTotalsize()) {
+                const abs_struct_start = header_index + fdt_header.readOffDtStruct();
+                const abs_struct_end = abs_struct_start + dt_struct_size;
+                if (abs_struct_end > header_index + fdt_header.readTotalsize()) {
                     return FDT.Error.Truncated;
                 }
-
                 const structure_block =
-                    self.raw_bytes[@intCast(structure_block_start)..@intCast(structure_block_end)];
+                    self.raw_bytes[@intCast(abs_struct_start)..@intCast(abs_struct_end)];
 
-                const strings_block_start = fdt_header.readOffDtStrings();
-                const strings_block_end = strings_block_start + fdt_header.readSizeDtStrings();
-
-                if (strings_block_end > fdt_header.readTotalsize()) {
+                const abs_strings_start = header_index + fdt_header.readOffDtStrings();
+                const abs_strings_end = abs_strings_start + fdt_header.readSizeDtStrings();
+                if (abs_strings_end > header_index + fdt_header.readTotalsize()) {
                     return FDT.Error.Truncated;
                 }
-
                 const strings_block =
-                    self.raw_bytes[@intCast(strings_block_start)..@intCast(strings_block_end)];
+                    self.raw_bytes[@intCast(abs_strings_start)..@intCast(abs_strings_end)];
 
                 var current_token_offset: u32 = 0;
                 var current_node_index: ?u32 = null;
+                var current_depth: u32 = 0;
                 while (current_token_offset < dt_struct_size) {
                     current_token_offset = std.mem.alignForward(u32, current_token_offset, 4);
                     if (current_token_offset + @sizeOf(FDT.Token) > dt_struct_size) {
@@ -180,40 +151,44 @@ pub fn DTB(comptime config: DTBConfig) type {
                             }
 
                             const name_slice = structure_block[name_start_offset..];
-                            const name: []const u8 =
+                            const name_len: u32 =
                                 loop: for (0..@min(
                                     name_slice.len,
                                     @as(usize, config.max_name_len),
                                 )) |i| {
                                     if (name_slice[i] == 0) {
-                                        break :loop name_slice[0..i];
+                                        break :loop @intCast(i);
                                     }
                                 } else return FDT.Error.NonNullTerminatedName;
+                            const name_end_offset = name_start_offset + name_len;
 
-                            if (name.len == 0 and current_node_index != null) {
+                            if (name_len == 0 and current_depth > 0) {
                                 return FDT.Error.EmptyNodeName;
                             }
 
                             const parent_node_index = current_node_index;
 
-                            const new_node_index = self.nodes_len;
-                            const new_node = try self.createNode();
-                            new_node.init(name, parent_node_index);
-
-                            if (parent_node_index) |par_idx| {
-                                const parent_node = &self.nodes[@intCast(par_idx)];
-                                (try parent_node.createChildIndex()).* = new_node_index;
-                            } else {
-                                (try self.createRootIndices()).* = new_node_index;
-                            }
+                            const new_node_index = try self.createNode(
+                                current_depth,
+                                name_start_offset,
+                                name_end_offset,
+                                parent_node_index,
+                            );
 
                             // push node
                             current_node_index = new_node_index;
 
-                            const name_size: u32 = @intCast(name.len + 1);
+                            const name_size: u32 =
+                                @intCast(name_end_offset - name_start_offset + 1);
                             // | token | nul terminated c string | next ..
                             current_token_offset +=
                                 @sizeOf(FDT.Token) + std.mem.alignForward(u32, name_size, 4);
+
+                            if (current_depth + 1 >= config.node_depth_array.len) {
+                                return DTBError.OOM;
+                            }
+
+                            current_depth += 1;
                         },
                         .end_node => {
                             if (current_node_index == null) {
@@ -244,6 +219,7 @@ pub fn DTB(comptime config: DTBConfig) type {
 
                             // | token | next ..
                             current_token_offset += @sizeOf(FDT.Token);
+                            current_depth -= 1;
                         },
                         .prop => {
                             const property_struct_start_offset =
@@ -259,46 +235,48 @@ pub fn DTB(comptime config: DTBConfig) type {
                             const property_string_start_index =
                                 property_struct_start_offset + @sizeOf(FDT.Prop);
                             // empty property string is allowed
-                            const val_start = property_string_start_index;
+                            const val_start_offset = property_string_start_index;
                             const prop_len = property_struct_start_ptr.readlen();
-                            if (val_start + prop_len > dt_struct_size) {
-                                return FDT.Error.Truncated;
-                            }
-                            const property_string = structure_block[val_start..][0..prop_len];
-
-                            const name_off = property_struct_start_ptr.readNameOff();
-                            if (name_off >= fdt_header.readSizeDtStrings()) {
+                            const val_end_offset = val_start_offset + prop_len;
+                            if (val_end_offset > dt_struct_size) {
                                 return FDT.Error.Truncated;
                             }
 
-                            const property_name_slice: []const u8 = strings_block[name_off..];
-                            const property_name: []const u8 = loop: for (0..@min(
+                            const property_name_start_offset =
+                                property_struct_start_ptr.readNameOff();
+                            if (property_name_start_offset >= fdt_header.readSizeDtStrings()) {
+                                return FDT.Error.Truncated;
+                            }
+
+                            const property_name_slice: []const u8 =
+                                strings_block[property_name_start_offset..];
+                            const property_name_len: u32 = loop: for (0..@min(
                                 property_name_slice.len,
                                 @as(usize, config.max_property_name_len),
                             )) |i| {
                                 if (property_name_slice[i] == 0) {
-                                    break :loop property_name_slice[0..i];
+                                    break :loop @intCast(i);
                                 }
                             } else return FDT.Error.NonNullTerminatedName;
+                            const property_name_end_offset =
+                                property_name_start_offset + property_name_len;
 
-                            if (property_name.len == 0) {
+                            if (property_name_len == 0) {
                                 return FDT.Error.EmptyPropertyName;
                             }
 
-                            const property_index = self.properties_len;
-                            const property = try self.createProperty();
-                            property.name = property_name;
-                            property.val = property_string;
+                            _ = try self.createProperty(
+                                current_depth,
+                                current_node_index,
+                                property_name_start_offset,
+                                property_name_end_offset,
+                                val_start_offset,
+                                val_end_offset,
+                            );
 
-                            if (current_node_index == null) {
-                                return FDT.Error.OrphanProperty;
-                            }
-
-                            const current_node = &self.nodes[@intCast(current_node_index.?)];
-                            (try current_node.createPropertyIndex()).* = property_index;
-
+                            const property_string_len = val_end_offset - val_start_offset;
                             const value_size =
-                                std.mem.alignForward(u32, @intCast(property_string.len), 4);
+                                std.mem.alignForward(u32, @intCast(property_string_len), 4);
 
                             // | token | prop | property_string | next...
                             current_token_offset += @sizeOf(FDT.Token) +
@@ -329,227 +307,161 @@ pub fn DTB(comptime config: DTBConfig) type {
             } // while of whole tree end
         }
 
-        fn findProperty(self: *const DTBType, property_name: []const u8) ?u32 {
-            for (self.properties[0..self.properties_len], 0..) |*property, i| {
-                if (std.mem.eql(u8, property.name, property_name)) {
-                    return @intCast(i);
-                }
+        fn getNodeDepthStart(i: u32) u32 {
+            std.debug.assert(i < config.node_depth_array.len - 1);
+
+            const slice = config.node_depth_array[0..i];
+            var depth: u32 = 0;
+
+            for (slice) |d| {
+                depth += d;
             }
 
-            return null;
+            return depth;
         }
 
-        fn createProperty(self: *DTBType) DTBError!*Property {
-            return try createUndefinedItemInFixedArray(
-                "properties",
-                "properties_len",
-                self,
-            );
-        }
+        fn getNodeDepthEnd(i: u32) u32 {
+            std.debug.assert(i < config.node_depth_array.len);
 
-        fn createEnsureProperty(self: *DTBType) *Property {
-            return createEnsureUndefinedItemInFixedArray(
-                "properties",
-                "properties_len",
-                self,
-            );
-        }
+            const slice = config.node_depth_array[0 .. i + 1];
+            var depth: u32 = 0;
 
-        pub fn findNode(self: *const DTBType, node_name: []const u8) ?u32 {
-            for (self.nodes[0..self.nodes_len], 0..) |*node, i| {
-                if (std.mem.eql(u8, node.name, node_name)) {
-                    return @intCast(i);
-                }
+            for (slice) |d| {
+                depth += d;
             }
 
-            return null;
+            return depth;
         }
 
-        fn createNode(self: *DTBType) DTBError!*Node {
-            return try createUndefinedItemInFixedArray(
-                "nodes",
-                "nodes_len",
-                self,
-            );
+        fn getNodesLen() u32 {
+            return comptime getNodeDepthEnd(config.node_depth_array.len - 1);
         }
 
-        fn createEnsureNode(self: *DTBType) *Node {
-            return createEnsureUndefinedItemInFixedArray(
-                "nodes",
-                "nodes_len",
-                self,
-            );
-        }
+        fn getPropertyDepthStart(i: u32) u32 {
+            std.debug.assert(i < config.property_depth_array.len - 1);
 
-        fn createRootIndices(self: *DTBType) DTBError!*u32 {
-            return try createUndefinedItemInFixedArray(
-                "root_indices",
-                "root_indices_len",
-                self,
-            );
-        }
+            const slice = config.property_depth_array[0..i];
+            var depth: u32 = 0;
 
-        fn createEnsureRootIndices(self: *DTBType) *u32 {
-            return createEnsureUndefinedItemInFixedArray(
-                "root_indices",
-                "root_indices_len",
-                self,
-            );
-        }
-
-        pub fn debugDump(
-            self: *const DTBType,
-            writer: *std.Io.Writer,
-        ) !void {
-            try writer.print("/dtb/;\n", .{});
-
-            for (self.root_indices[0..self.root_indices_len]) |root_idx| {
-                try self.printNode(writer, @intCast(root_idx), 0);
+            for (slice) |d| {
+                depth += d;
             }
 
-            try writer.print("\n", .{});
+            return depth;
         }
 
-        fn printNode(
-            self: *const DTBType,
-            writer: *std.Io.Writer,
-            node_idx: u32,
-            indent_level: u32,
-        ) !void {
-            const node = &self.nodes[node_idx];
+        fn getPropertyDepthEnd(i: u32) u32 {
+            std.debug.assert(i < config.property_depth_array.len);
 
-            const spaces: [512]u8 = @splat(' ');
-            const indent = spaces[0..@min(indent_level * 2, spaces.len)];
+            const slice = config.property_depth_array[0 .. i + 1];
+            var depth: u32 = 0;
 
-            try writer.print("{s}{s} {{\n", .{ indent, node.name });
+            for (slice) |d| {
+                depth += d;
+            }
 
-            for (node.property_indices[0..node.property_indices_len]) |prop_idx| {
-                const prop = &self.properties[@intCast(prop_idx)];
+            return depth;
+        }
 
-                if (prop.val.len == 0) {
-                    try writer.print("{s}  {s};\n", .{ indent, prop.name });
-                    continue;
-                }
+        fn getPropertiesLen() u32 {
+            return comptime getPropertyDepthEnd(config.property_depth_array.len - 1);
+        }
 
-                if (isStringListProperty(prop.val)) {
-                    try writer.print("{s}  {s} = ", .{ indent, prop.name });
-                    try printStringList(writer, prop.val);
-                } else if (isStringProperty(prop)) {
-                    try writer.print("{s}  {s} = ", .{ indent, prop.name });
-                    const trimmed = std.mem.trimRight(u8, prop.val, "\x00");
-                    if (std.mem.eql(u8, trimmed, "<NULL>")) {
-                        try writer.print("<null>;\n", .{});
-                    } else {
-                        try writer.print("\"{s}\";\n", .{trimmed});
-                    }
+        fn createNode(
+            self: *DTBType,
+            depth: u32,
+            name_start_offset: u32,
+            name_end_offset: u32,
+            parent_index: ?u32,
+        ) DTBError!u32 {
+            if (depth >= config.node_depth_array.len) {
+                return DTBError.OOM;
+            }
+
+            const node_depth_start = getNodeDepthStart(depth);
+            const max_per_depth = config.node_depth_array[depth];
+            if (self.nodes_len[depth] >= max_per_depth) {
+                return DTBError.OOM;
+            }
+
+            const node_depth_len = self.nodes_len[depth];
+            const new_node_index = node_depth_start + node_depth_len;
+
+            // const node_depth_end = getNodeDepthEnd(depth);
+            // if (new_node_index + 1 >= node_depth_end) {
+            //     return DTBError.OOM;
+            // }
+
+            self.nodes_len[depth] += 1;
+            self.nodes[@intCast(new_node_index)].init(
+                depth,
+                name_start_offset,
+                name_end_offset,
+                parent_index,
+            );
+
+            if (parent_index) |par_idx| {
+                const parent = &self.nodes[par_idx];
+                if (parent.child_indices_end == parent.child_indices_start) { // first child
+                    parent.child_indices_start = new_node_index;
+                    parent.child_indices_end = new_node_index + 1;
                 } else {
-                    try writer.print("{s}  {s} = <", .{ indent, prop.name });
-                    const val_len = prop.val.len;
-                    var i: usize = 0;
-                    while (i < val_len) : (i += 4) {
-                        if (i > 0) try writer.print(" ", .{});
-                        const remaining = val_len - i;
-                        if (remaining >= 4) {
-                            const word = std.mem.readInt(
-                                u32,
-                                @ptrCast(prop.val[i .. i + 4].ptr),
-                                .big,
-                            );
-                            try writer.print("0x{x}", .{word});
-                        } else {
-                            var buf: [4]u8 = undefined;
-                            @memcpy(buf[0..remaining], prop.val[i..]);
-                            @memset(buf[remaining..], 0);
-                            const word = std.mem.readInt(u32, &buf, .big);
-                            try writer.print("0x{x}", .{word});
-                        }
-                    }
-                    try writer.print(">;\n", .{});
+                    parent.child_indices_end += 1;
                 }
             }
 
-            for (node.child_indices[0..node.child_indices_len]) |child_idx| {
-                try self.printNode(writer, @intCast(child_idx), indent_level + 1);
-            }
-
-            try writer.print("{s}}};\n", .{indent});
+            return new_node_index;
         }
 
-        fn isStringProperty(prop: *const Property) bool {
-            if (prop.val.len == 0) return false;
-            if (prop.val[prop.val.len - 1] != 0) return false;
-            for (prop.val[0 .. prop.val.len - 1]) |byte| {
-                if (byte < 32 or byte > 126) return false;
+        fn createProperty(
+            self: *DTBType,
+            depth: u32,
+            current_node_index: ?u32,
+            name_start_offset: u32,
+            name_end_offset: u32,
+            val_start_offset: u32,
+            val_end_offset: u32,
+        ) (FDT.Error || DTBError)!u32 {
+            if (depth >= config.property_depth_array.len) {
+                return DTBError.OOM;
             }
-            return true;
-        }
 
-        fn isStringListProperty(val: []const u8) bool {
-            if (val.len == 0 or val[val.len - 1] != 0) return false;
-            var has_non_null = false;
-            var i: usize = 0;
-            while (i < val.len) : (i += 1) {
-                if (val[i] == 0) continue;
-                has_non_null = true;
-                if (val[i] < 32 or val[i] > 126) return false;
+            const property_depth_start = getPropertyDepthStart(depth);
+            const max_per_depth = config.property_depth_array[depth];
+            if (self.properties_len[depth] >= max_per_depth) {
+                return DTBError.OOM;
             }
-            return has_non_null and (val.len > 1);
-        }
 
-        fn printStringList(writer: anytype, val: []const u8) !void {
-            var i: usize = 0;
-            var first = true;
-            while (i < val.len) {
-                const start = i;
-                while (i < val.len and val[i] != 0) : (i += 1) {}
-                if (i == start) {
-                    i += 1;
-                    continue;
+            const property_depth_len = self.properties_len[depth];
+            const new_property_index = property_depth_start + property_depth_len;
+
+            // const property_depth_end = getPropertyDepthEnd(depth);
+            // if (new_property_index + 1 >= property_depth_end) {
+            //     return DTBError.OOM;
+            // }
+
+            self.properties_len[depth] += 1;
+            self.properties[@intCast(new_property_index)] = .{
+                .name_start_offset = name_start_offset,
+                .name_end_offset = name_end_offset,
+                .val_start_offset = val_start_offset,
+                .val_end_offset = val_end_offset,
+            };
+
+            if (current_node_index) |node_idx| {
+                const current_node = &self.nodes[node_idx];
+                // first property
+                if (current_node.property_indices_end == current_node.property_indices_start) {
+                    current_node.property_indices_start = new_property_index;
+                    current_node.property_indices_end = new_property_index + 1;
+                } else {
+                    current_node.property_indices_end += 1;
                 }
-                if (!first) try writer.print(", ", .{});
-                try writer.print("\"{s}\"", .{val[start..i]});
-                first = false;
-                i += 1;
+            } else {
+                return FDT.Error.OrphanProperty;
             }
-            try writer.print(";\n", .{});
+
+            return new_property_index;
         }
     };
-}
-
-inline fn createUndefinedItemInFixedArray(
-    comptime item_field_name: []const u8,
-    comptime item_field_len_name: []const u8,
-    self: anytype,
-) !*std.meta.Child(@FieldType(@TypeOf(self.*), item_field_name)) {
-    std.debug.assert(@field(self, item_field_len_name) <= @field(self, item_field_name).len);
-
-    if (@field(self, item_field_len_name) >= @field(self, item_field_name).len) {
-        return DTBError.OOM;
-    }
-
-    const ptr = createEnsureUndefinedItemInFixedArray(item_field_name, item_field_len_name, self);
-
-    std.debug.assert(@field(self, item_field_len_name) <= @field(self, item_field_name).len);
-
-    return ptr;
-}
-
-inline fn createEnsureUndefinedItemInFixedArray(
-    comptime item_field_name: []const u8,
-    comptime item_field_len_name: []const u8,
-    self: anytype,
-) *std.meta.Child(@FieldType(@TypeOf(self.*), item_field_name)) {
-    std.debug.assert(@field(self, item_field_len_name) < @field(self, item_field_name).len);
-
-    const old_len = @field(self, item_field_len_name);
-    @field(self, item_field_len_name) += 1;
-
-    // poison
-    if (@import("builtin").mode == .Debug) {
-        @field(self, item_field_name)[@intCast(old_len)] = undefined;
-    }
-
-    std.debug.assert(@field(self, item_field_len_name) <= @field(self, item_field_name).len);
-
-    return &@field(self, item_field_name)[@intCast(old_len)];
 }
