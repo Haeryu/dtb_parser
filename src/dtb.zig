@@ -5,11 +5,11 @@ const std = @import("std");
 const FDT = @import("fdt.zig").FDT;
 
 pub const DTBConfig = struct {
-    node_depth_array: []const u32 = &.{ 1, 2, 4, 8, 16 },
-    property_depth_array: []const u32 = &.{ 1, 2, 4, 8, 16 },
+    node_depth_array: []const u32 = &.{ 1, 1024, 1024, 1024, 1024, 1024, 1024, 1024 },
+    property_depth_array: []const u32 = &.{ 1, 1024, 1024, 1024, 1024, 1024, 1024, 1024 },
 
-    max_name_len: u32 = 32,
-    max_property_name_len: u32 = 32,
+    max_name_len: u32 = 64,
+    max_property_name_len: u32 = 64,
 };
 
 pub const DTBError = error{
@@ -305,10 +305,57 @@ pub fn DTB(comptime config: DTBConfig) type {
 
                 header_index += fdt_header.readTotalsize();
             } // while of whole tree end
+
+        } // fn parse end
+
+        pub fn getNodeName(self: *const DTBType, node_idx: u32) []const u8 {
+            const node = &self.nodes[node_idx];
+            return self.raw_bytes[node.name_start_offset..node.name_end_offset];
+        }
+
+        pub fn getChildren(self: *const DTBType, node_idx: u32) []const Node {
+            const node = &self.nodes[node_idx];
+            if (node.depth + 1 >= config.node_depth_array.len) {
+                return &.{};
+            }
+            const child_depth_start = getNodeDepthStart(node.depth + 1);
+
+            return self
+                .nodes[child_depth_start..][node.child_indices_start..node.child_indices_end];
+        }
+
+        pub fn getPropertyName(self: *const DTBType, prop_idx: u32) []const u8 {
+            const property = &self.properties[prop_idx];
+            return self.raw_bytes[property.name_start_offset..property.name_end_offset];
+        }
+
+        pub fn getPropertyValue(self: *const DTBType, prop_idx: u32) []const u8 {
+            const property = &self.properties[prop_idx];
+            return self.raw_bytes[property.val_start_offset..property.val_end_offset];
+        }
+
+        pub fn getProperties(self: *const DTBType, node_idx: u32) []const Property {
+            const node = &self.nodes[node_idx];
+            return self.properties[node.property_indices_start..node.property_indices_end];
+        }
+
+        pub fn findNodeIndex(self: *const DTBType, node_name: []const u8) ?u32 {
+            for (&self.nodes_len, 0..) |len, depth| {
+                const node_depth_start = getNodeDepthStart(depth);
+
+                for (0..len) |i| {
+                    const node_index = node_depth_start + i;
+                    if (std.mem.eql(u8, self.getNodeName(node_index), node_name)) {
+                        return node_index;
+                    }
+                }
+            }
+
+            return null;
         }
 
         fn getNodeDepthStart(i: u32) u32 {
-            std.debug.assert(i < config.node_depth_array.len - 1);
+            std.debug.assert(i < config.node_depth_array.len);
 
             const slice = config.node_depth_array[0..i];
             var depth: u32 = 0;
@@ -338,7 +385,7 @@ pub fn DTB(comptime config: DTBConfig) type {
         }
 
         fn getPropertyDepthStart(i: u32) u32 {
-            std.debug.assert(i < config.property_depth_array.len - 1);
+            std.debug.assert(i < config.property_depth_array.len);
 
             const slice = config.property_depth_array[0..i];
             var depth: u32 = 0;
@@ -441,12 +488,10 @@ pub fn DTB(comptime config: DTBConfig) type {
             // }
 
             self.properties_len[depth] += 1;
-            self.properties[@intCast(new_property_index)] = .{
-                .name_start_offset = name_start_offset,
-                .name_end_offset = name_end_offset,
-                .val_start_offset = val_start_offset,
-                .val_end_offset = val_end_offset,
-            };
+            self.properties[@intCast(new_property_index)].name_start_offset = name_start_offset;
+            self.properties[@intCast(new_property_index)].name_end_offset = name_end_offset;
+            self.properties[@intCast(new_property_index)].val_start_offset = val_start_offset;
+            self.properties[@intCast(new_property_index)].val_end_offset = val_end_offset;
 
             if (current_node_index) |node_idx| {
                 const current_node = &self.nodes[node_idx];
