@@ -24,10 +24,10 @@ test "comptime parse" {
         try dtb.parse();
 
         var stderr_buffer: [1024]u8 = undefined;
-        var stdout_writer = std.fs.File.stderr().writer(&stderr_buffer);
-        const stderr = &stdout_writer.interface;
+        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+        const stderr = &stderr_writer.interface;
 
-        try dtb.debugDump(stderr);
+        try dtb.debugDump(&stderr_writer.interface);
 
         try stderr.flush();
 
