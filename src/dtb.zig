@@ -11,7 +11,6 @@ pub const DTBConfig = struct {
 
 pub const DTBError = error{
     OOM,
-    // OutOfLoopBound,
 };
 
 pub fn DTB(comptime config: DTBConfig) type {
