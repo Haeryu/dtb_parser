@@ -7,9 +7,6 @@ const FDT = @import("fdt.zig").FDT;
 pub const DTBConfig = struct {
     node_depth_array: []const u32 = &.{ 1, 128, 128, 128, 128, 128, 128 },
     property_depth_array: []const u32 = &.{ 1024, 1024, 1024, 1024, 1024, 1024, 1024 },
-
-    max_name_len: u32 = 64,
-    max_property_name_len: u32 = 64,
 };
 
 pub const DTBError = error{
