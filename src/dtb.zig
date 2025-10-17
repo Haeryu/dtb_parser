@@ -150,20 +150,11 @@ pub fn DTB(comptime config: DTBConfig) type {
                             }
 
                             const name_start_offset = current_token_offset + @sizeOf(FDT.Token);
-                            if (name_start_offset >= dt_struct_size) {
-                                return FDT.Error.Truncated;
-                            }
-
-                            const name_slice = structure_block[name_start_offset..];
-                            const idx = std.mem.indexOfScalar(
-                                u8,
-                                name_slice[0..@min(
-                                    name_slice.len,
-                                    @as(usize, config.max_name_len),
-                                )],
-                                0,
-                            ) orelse return FDT.Error.NonNullTerminatedName;
-                            const name_len: u32 = @intCast(idx);
+                            const name_len = try calcLen(
+                                structure_block,
+                                name_start_offset,
+                                dt_struct_size,
+                            );
                             const name_end_offset = name_start_offset + name_len;
 
                             if (name_len == 0 and current_depth > 0) {
@@ -244,23 +235,11 @@ pub fn DTB(comptime config: DTBConfig) type {
 
                             const property_name_start_offset =
                                 property_struct_start_ptr.readNameOff();
-                            if (property_name_start_offset >= fdt_header.readSizeDtStrings()) {
-                                return FDT.Error.Truncated;
-                            }
-
-                            const property_name_slice: []const u8 =
-                                strings_block[property_name_start_offset..];
-
-                            const idx = std.mem.indexOfScalar(
-                                u8,
-                                property_name_slice[0..@min(
-                                    property_name_slice.len,
-                                    @as(usize, config.max_property_name_len),
-                                )],
-                                0,
-                            ) orelse return FDT.Error.NonNullTerminatedName;
-                            const property_name_len: u32 = @intCast(idx);
-
+                            const property_name_len = try calcLen(
+                                strings_block,
+                                property_name_start_offset,
+                                fdt_header.readSizeDtStrings(),
+                            );
                             const property_name_end_offset =
                                 property_name_start_offset + property_name_len;
 
@@ -663,4 +642,13 @@ pub fn DTB(comptime config: DTBConfig) type {
             try writer.print(";\n", .{});
         }
     };
+}
+
+fn calcLen(buf: []const u8, start: u32, end_limit: u32) FDT.Error!u32 {
+    if (start >= end_limit) {
+        return FDT.Error.Truncated;
+    }
+
+    return @intCast(std.mem.indexOfScalar(u8, buf[@intCast(start)..@intCast(end_limit)], 0) orelse
+        return FDT.Error.NonNullTerminatedName);
 }
