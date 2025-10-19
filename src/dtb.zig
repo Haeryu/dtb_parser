@@ -81,8 +81,8 @@ pub fn DTB(comptime config: DTBConfig) type {
 
             // poison
             if (@import("builtin").mode == .Debug) {
-                @memset(&self.nodes, undefined);
-                @memset(&self.properties, undefined);
+                self.nodes = undefined;
+                self.properties = undefined;
             }
         }
 
@@ -488,11 +488,6 @@ pub fn DTB(comptime config: DTBConfig) type {
 
             const property_depth_len = self.properties_len[depth];
             const new_property_index = property_depth_start + property_depth_len;
-
-            // const property_depth_end = getPropertyDepthEnd(depth);
-            // if (new_property_index + 1 >= property_depth_end) {
-            //     return DTBError.OOM;
-            // }
 
             self.properties_len[depth] += 1;
             self.properties[@intCast(new_property_index)].name_start_offset = name_start_offset;
