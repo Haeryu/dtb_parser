@@ -535,7 +535,7 @@ pub fn DTB(comptime config: DTBConfig) type {
             const node = self.nodes[node_idx];
             const name = self.getNodeName(node_idx);
 
-            const spaces: [512]u8 = @splat(' ');
+            const spaces: []const u8 = " " ** 512;
             const indent_len = @min(indent_level * 2, spaces.len);
             const indent = spaces[0..indent_len];
 
@@ -606,8 +606,7 @@ pub fn DTB(comptime config: DTBConfig) type {
         fn isStringListProperty(val: []const u8) bool {
             if (val.len == 0 or val[val.len - 1] != 0) return false;
             var has_non_null = false;
-            var i: usize = 0;
-            while (i < val.len) : (i += 1) {
+            for (0..val.len) |i| {
                 if (val[i] == 0) continue;
                 has_non_null = true;
                 if (val[i] < 32 or val[i] > 126) return false;
@@ -615,7 +614,7 @@ pub fn DTB(comptime config: DTBConfig) type {
             return has_non_null and (val.len > 1);
         }
 
-        fn printStringList(writer: anytype, val: []const u8) !void {
+        fn printStringList(writer: *std.Io.Writer, val: []const u8) !void {
             var i: usize = 0;
             var first = true;
             while (i < val.len) {
