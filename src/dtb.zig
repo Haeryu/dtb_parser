@@ -36,7 +36,7 @@ pub fn DTB(comptime config: DTBConfig) type {
 
         const DTBType = @This();
 
-        pub const Node = struct {
+        pub const Node = extern struct {
             depth: u32,
             name_start_offset: u32,
             name_end_offset: u32,
@@ -67,7 +67,7 @@ pub fn DTB(comptime config: DTBConfig) type {
             }
         };
 
-        pub const Property = struct {
+        pub const Property = extern struct {
             name_start_offset: u32,
             name_end_offset: u32,
             val_start_offset: u32,
