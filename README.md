@@ -99,12 +99,10 @@ pub fn main() !void {
     try dtb.debugDump(&stderr_writer.interface);
     try stderr.print(
         \\total memory usage of dtb parser = {}
-        \\dtb input bytes (raw_bytes.len)  = {}
         \\node_depth_array                 = {any}
         \\property_depth_array             = {any}
     , .{
         @sizeOf(@TypeOf(dtb)),
-        dtb.raw_bytes.len,
         node_depth_array,
         property_depth_array,
     });
@@ -128,7 +126,6 @@ pub fn main() !void {
 };
 
 total memory usage of dtb parser = 48984
-dtb input bytes (raw_bytes.len)  = 78723
 node_depth_array                 = { 1, 35, 92, 36, 66, 63, 26 }
 property_depth_array             = { 5, 601, 668, 143, 590, 242, 90 }
 ```

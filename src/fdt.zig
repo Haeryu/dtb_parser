@@ -39,10 +39,10 @@ pub const FDT = struct {
         size_dt_strings: u32,
         size_dt_struct: u32,
 
-        pub fn fromBytes(raw_bytes: []const u8) Error!*const Header {
-            if (raw_bytes.len < @sizeOf(Header)) {
-                return Error.Truncated;
-            }
+        pub fn fromBytes(raw_bytes: [*]const u8) Error!*const Header {
+            // if (raw_bytes.len < @sizeOf(Header)) {
+            //     return Error.Truncated;
+            // }
 
             const header: *const Header =
                 @alignCast(std.mem.bytesAsValue(Header, raw_bytes[0..@sizeOf(Header)]));

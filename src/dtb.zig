@@ -26,7 +26,7 @@ pub fn DTB(comptime config: DTBConfig) type {
     comptime std.debug.assert(config.node_depth_array.len == config.property_depth_array.len);
 
     return struct {
-        raw_bytes: []const u8,
+        raw_bytes: [*]const u8,
 
         properties: [getPropertiesLen()]Property,
         properties_len: [config.property_depth_array.len]u32,
@@ -74,7 +74,7 @@ pub fn DTB(comptime config: DTBConfig) type {
             val_end_offset: u32,
         };
 
-        pub fn init(self: *DTBType, raw_bytes: []const u8) void {
+        pub fn init(self: *DTBType, raw_bytes: [*]const u8) void {
             self.raw_bytes = raw_bytes;
             self.nodes_len = @splat(0);
             self.properties_len = @splat(0);
@@ -86,208 +86,208 @@ pub fn DTB(comptime config: DTBConfig) type {
             }
         }
 
-        pub fn reset(self: *DTBType, raw_bytes: []const u8) void {
+        pub fn reset(self: *DTBType, raw_bytes: [*]const u8) void {
             self.init(raw_bytes);
         }
 
         pub fn parse(self: *DTBType) (DTBError || FDT.Error)!void {
-            var header_index: u32 = 0;
-            while (@as(usize, @intCast(header_index)) < self.raw_bytes.len) {
-                const fdt_header =
-                    try FDT.Header.fromBytes(self.raw_bytes[@intCast(header_index)..]);
+            // var header_index: u32 = 0;
+            // while (@as(usize, @intCast(header_index)) < self.raw_bytes.len) {
+            const fdt_header =
+                try FDT.Header.fromBytes(self.raw_bytes);
 
-                const remaining_size = self.raw_bytes.len - header_index;
-                if (remaining_size < fdt_header.readTotalsize()) {
+            // const remaining_size = self.raw_bytes.len - header_index;
+            // if (remaining_size < fdt_header.readTotalsize()) {
+            //     return FDT.Error.Truncated;
+            // }
+
+            if (fdt_header.readVersion() != 17 or fdt_header.readLastCompVersion() != 16) {
+                return FDT.Error.UnsupportedVersion;
+            }
+
+            const dt_struct_size = fdt_header.readSizeDtStruct();
+
+            const abs_struct_start = fdt_header.readOffDtStruct();
+            const abs_struct_end = abs_struct_start + dt_struct_size;
+            if (abs_struct_end > fdt_header.readTotalsize()) {
+                return FDT.Error.Truncated;
+            }
+            const structure_block =
+                self.raw_bytes[@intCast(abs_struct_start)..@intCast(abs_struct_end)];
+
+            const abs_strings_start = fdt_header.readOffDtStrings();
+            const abs_strings_end = abs_strings_start + fdt_header.readSizeDtStrings();
+            if (abs_strings_end > fdt_header.readTotalsize()) {
+                return FDT.Error.Truncated;
+            }
+            const strings_block =
+                self.raw_bytes[@intCast(abs_strings_start)..@intCast(abs_strings_end)];
+
+            var current_token_offset: u32 = 0;
+            var current_node_index: ?u32 = null;
+            var current_depth: u32 = 0;
+            while (current_token_offset < dt_struct_size) {
+                current_token_offset = std.mem.alignForward(u32, current_token_offset, 4);
+                if (current_token_offset + @sizeOf(FDT.Token) > dt_struct_size) {
                     return FDT.Error.Truncated;
                 }
+                const token_raw = std.mem.readInt(
+                    u32,
+                    structure_block[@intCast(current_token_offset)..][0..4],
+                    .big,
+                );
+                const token = std.enums.fromInt(FDT.Token, token_raw) orelse
+                    return FDT.Error.UnknownToken;
 
-                if (fdt_header.readVersion() != 17 or fdt_header.readLastCompVersion() != 16) {
-                    return FDT.Error.UnsupportedVersion;
+                switch (token) {
+                    .begin_node => {
+                        if (current_depth >= config.node_depth_array.len) {
+                            return DTBError.OOM;
+                        }
+
+                        const name_start_offset = current_token_offset + @sizeOf(FDT.Token);
+                        const name_len = try calcLen(
+                            structure_block,
+                            name_start_offset,
+                            dt_struct_size,
+                        );
+                        const name_end_offset = name_start_offset + name_len;
+
+                        if (name_len == 0 and current_depth > 0) {
+                            return FDT.Error.EmptyNodeName;
+                        }
+
+                        const parent_node_index = current_node_index;
+
+                        const new_node_index = try self.createNode(
+                            current_depth,
+                            abs_struct_start + name_start_offset,
+                            abs_struct_start + name_end_offset,
+                            parent_node_index,
+                        );
+
+                        // push node
+                        current_node_index = new_node_index;
+
+                        const name_size: u32 =
+                            @intCast(name_end_offset - name_start_offset + 1);
+                        // | token | nul terminated c string | next ..
+                        current_token_offset +=
+                            @sizeOf(FDT.Token) + std.mem.alignForward(u32, name_size, 4);
+
+                        current_depth += 1;
+                    },
+                    .end_node => {
+                        if (current_node_index == null) {
+                            return FDT.Error.UnendedNodeExist;
+                        }
+                        const current_node = &self.nodes[@intCast(current_node_index.?)];
+
+                        const next_token_start_offset =
+                            current_token_offset + @sizeOf(FDT.Token); // already aligned
+                        if (next_token_start_offset + @sizeOf(u32) > dt_struct_size) {
+                            return FDT.Error.Truncated;
+                        }
+
+                        const next_token_raw = std.mem.readInt(
+                            u32,
+                            structure_block[next_token_start_offset..][0..4],
+                            .big,
+                        );
+                        const next_token = std.enums.fromInt(FDT.Token, next_token_raw) orelse
+                            return FDT.Error.UnknownToken;
+
+                        if (next_token == .prop) {
+                            return FDT.Error.PropNextEndNode;
+                        }
+
+                        // pop node
+                        current_node_index = current_node.parent_index;
+
+                        // | token | next ..
+                        current_token_offset += @sizeOf(FDT.Token);
+                        current_depth -= 1;
+                    },
+                    .prop => {
+                        const property_struct_start_offset =
+                            current_token_offset + @sizeOf(FDT.Token);
+                        if (property_struct_start_offset + @sizeOf(FDT.Prop) > dt_struct_size) {
+                            return FDT.Error.Truncated;
+                        }
+
+                        const property_struct_start_ptr: *const FDT.Prop =
+                            @ptrCast(@alignCast(
+                                &structure_block[@intCast(property_struct_start_offset)],
+                            ));
+                        const property_string_start_index =
+                            property_struct_start_offset + @sizeOf(FDT.Prop);
+                        // empty property string is allowed
+                        const val_start_offset = property_string_start_index;
+                        const prop_len = property_struct_start_ptr.readlen();
+                        const val_end_offset = val_start_offset + prop_len;
+                        if (val_end_offset > dt_struct_size) {
+                            return FDT.Error.Truncated;
+                        }
+
+                        const property_name_start_offset =
+                            property_struct_start_ptr.readNameOff();
+                        const property_name_len = try calcLen(
+                            strings_block,
+                            property_name_start_offset,
+                            fdt_header.readSizeDtStrings(),
+                        );
+                        const property_name_end_offset =
+                            property_name_start_offset + property_name_len;
+
+                        if (property_name_len == 0) {
+                            return FDT.Error.EmptyPropertyName;
+                        }
+
+                        const prop_depth: u32 = blk: {
+                            const i =
+                                current_node_index orelse return FDT.Error.OrphanProperty;
+                            break :blk self.nodes[i].depth;
+                        };
+                        _ = try self.createProperty(
+                            prop_depth,
+                            current_node_index,
+                            abs_strings_start + property_name_start_offset,
+                            abs_strings_start + property_name_end_offset,
+                            abs_struct_start + val_start_offset,
+                            abs_struct_start + val_end_offset,
+                        );
+
+                        const property_string_len = val_end_offset - val_start_offset;
+                        const value_size =
+                            std.mem.alignForward(u32, @intCast(property_string_len), 4);
+
+                        // | token | prop | property_string | next...
+                        current_token_offset += @sizeOf(FDT.Token) +
+                            @sizeOf(FDT.Prop) + value_size;
+                    },
+                    .nop => {
+                        // | token | next ..
+                        current_token_offset += @sizeOf(FDT.Token);
+                    },
+                    .end => {
+                        // | token | end.
+                        const end_offset = current_token_offset + @sizeOf(FDT.Token);
+
+                        if (end_offset != dt_struct_size) {
+                            return FDT.Error.EndIsNotLastToken;
+                        }
+
+                        if (current_node_index != null) {
+                            return FDT.Error.UnendedNodeExist;
+                        }
+
+                        current_token_offset = end_offset; // while loop end
+                    },
                 }
+            } // while of one tree end
 
-                const dt_struct_size = fdt_header.readSizeDtStruct();
-
-                const abs_struct_start = header_index + fdt_header.readOffDtStruct();
-                const abs_struct_end = abs_struct_start + dt_struct_size;
-                if (abs_struct_end > header_index + fdt_header.readTotalsize()) {
-                    return FDT.Error.Truncated;
-                }
-                const structure_block =
-                    self.raw_bytes[@intCast(abs_struct_start)..@intCast(abs_struct_end)];
-
-                const abs_strings_start = header_index + fdt_header.readOffDtStrings();
-                const abs_strings_end = abs_strings_start + fdt_header.readSizeDtStrings();
-                if (abs_strings_end > header_index + fdt_header.readTotalsize()) {
-                    return FDT.Error.Truncated;
-                }
-                const strings_block =
-                    self.raw_bytes[@intCast(abs_strings_start)..@intCast(abs_strings_end)];
-
-                var current_token_offset: u32 = 0;
-                var current_node_index: ?u32 = null;
-                var current_depth: u32 = 0;
-                while (current_token_offset < dt_struct_size) {
-                    current_token_offset = std.mem.alignForward(u32, current_token_offset, 4);
-                    if (current_token_offset + @sizeOf(FDT.Token) > dt_struct_size) {
-                        return FDT.Error.Truncated;
-                    }
-                    const token_raw = std.mem.readInt(
-                        u32,
-                        structure_block[@intCast(current_token_offset)..][0..4],
-                        .big,
-                    );
-                    const token = std.enums.fromInt(FDT.Token, token_raw) orelse
-                        return FDT.Error.UnknownToken;
-
-                    switch (token) {
-                        .begin_node => {
-                            if (current_depth >= config.node_depth_array.len) {
-                                return DTBError.OOM;
-                            }
-
-                            const name_start_offset = current_token_offset + @sizeOf(FDT.Token);
-                            const name_len = try calcLen(
-                                structure_block,
-                                name_start_offset,
-                                dt_struct_size,
-                            );
-                            const name_end_offset = name_start_offset + name_len;
-
-                            if (name_len == 0 and current_depth > 0) {
-                                return FDT.Error.EmptyNodeName;
-                            }
-
-                            const parent_node_index = current_node_index;
-
-                            const new_node_index = try self.createNode(
-                                current_depth,
-                                abs_struct_start + name_start_offset,
-                                abs_struct_start + name_end_offset,
-                                parent_node_index,
-                            );
-
-                            // push node
-                            current_node_index = new_node_index;
-
-                            const name_size: u32 =
-                                @intCast(name_end_offset - name_start_offset + 1);
-                            // | token | nul terminated c string | next ..
-                            current_token_offset +=
-                                @sizeOf(FDT.Token) + std.mem.alignForward(u32, name_size, 4);
-
-                            current_depth += 1;
-                        },
-                        .end_node => {
-                            if (current_node_index == null) {
-                                return FDT.Error.UnendedNodeExist;
-                            }
-                            const current_node = &self.nodes[@intCast(current_node_index.?)];
-
-                            const next_token_start_offset =
-                                current_token_offset + @sizeOf(FDT.Token); // already aligned
-                            if (next_token_start_offset + @sizeOf(u32) > dt_struct_size) {
-                                return FDT.Error.Truncated;
-                            }
-
-                            const next_token_raw = std.mem.readInt(
-                                u32,
-                                structure_block[next_token_start_offset..][0..4],
-                                .big,
-                            );
-                            const next_token = std.enums.fromInt(FDT.Token, next_token_raw) orelse
-                                return FDT.Error.UnknownToken;
-
-                            if (next_token == .prop) {
-                                return FDT.Error.PropNextEndNode;
-                            }
-
-                            // pop node
-                            current_node_index = current_node.parent_index;
-
-                            // | token | next ..
-                            current_token_offset += @sizeOf(FDT.Token);
-                            current_depth -= 1;
-                        },
-                        .prop => {
-                            const property_struct_start_offset =
-                                current_token_offset + @sizeOf(FDT.Token);
-                            if (property_struct_start_offset + @sizeOf(FDT.Prop) > dt_struct_size) {
-                                return FDT.Error.Truncated;
-                            }
-
-                            const property_struct_start_ptr: *const FDT.Prop =
-                                @ptrCast(@alignCast(
-                                    &structure_block[@intCast(property_struct_start_offset)],
-                                ));
-                            const property_string_start_index =
-                                property_struct_start_offset + @sizeOf(FDT.Prop);
-                            // empty property string is allowed
-                            const val_start_offset = property_string_start_index;
-                            const prop_len = property_struct_start_ptr.readlen();
-                            const val_end_offset = val_start_offset + prop_len;
-                            if (val_end_offset > dt_struct_size) {
-                                return FDT.Error.Truncated;
-                            }
-
-                            const property_name_start_offset =
-                                property_struct_start_ptr.readNameOff();
-                            const property_name_len = try calcLen(
-                                strings_block,
-                                property_name_start_offset,
-                                fdt_header.readSizeDtStrings(),
-                            );
-                            const property_name_end_offset =
-                                property_name_start_offset + property_name_len;
-
-                            if (property_name_len == 0) {
-                                return FDT.Error.EmptyPropertyName;
-                            }
-
-                            const prop_depth: u32 = blk: {
-                                const i =
-                                    current_node_index orelse return FDT.Error.OrphanProperty;
-                                break :blk self.nodes[i].depth;
-                            };
-                            _ = try self.createProperty(
-                                prop_depth,
-                                current_node_index,
-                                abs_strings_start + property_name_start_offset,
-                                abs_strings_start + property_name_end_offset,
-                                abs_struct_start + val_start_offset,
-                                abs_struct_start + val_end_offset,
-                            );
-
-                            const property_string_len = val_end_offset - val_start_offset;
-                            const value_size =
-                                std.mem.alignForward(u32, @intCast(property_string_len), 4);
-
-                            // | token | prop | property_string | next...
-                            current_token_offset += @sizeOf(FDT.Token) +
-                                @sizeOf(FDT.Prop) + value_size;
-                        },
-                        .nop => {
-                            // | token | next ..
-                            current_token_offset += @sizeOf(FDT.Token);
-                        },
-                        .end => {
-                            // | token | end.
-                            const end_offset = current_token_offset + @sizeOf(FDT.Token);
-
-                            if (end_offset != dt_struct_size) {
-                                return FDT.Error.EndIsNotLastToken;
-                            }
-
-                            if (current_node_index != null) {
-                                return FDT.Error.UnendedNodeExist;
-                            }
-
-                            current_token_offset = end_offset; // while loop end
-                        },
-                    }
-                } // while of one tree end
-
-                header_index += fdt_header.readTotalsize();
-            } // while of whole tree end
+            //     header_index += fdt_header.readTotalsize();
+            // } // while of whole tree end
 
         } // fn parse end
 
