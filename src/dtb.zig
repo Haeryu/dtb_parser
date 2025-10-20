@@ -41,7 +41,7 @@ pub fn DTB(comptime config: DTBConfig) type {
             name_start_offset: u32,
             name_end_offset: u32,
 
-            parent_index: ?u32,
+            parent_index: u32,
 
             child_indices_start: u32,
             child_indices_end: u32,
@@ -54,7 +54,7 @@ pub fn DTB(comptime config: DTBConfig) type {
                 depth: u32,
                 name_start_offset: u32,
                 name_end_offset: u32,
-                parent_index: ?u32,
+                parent_index: u32,
             ) void {
                 self.depth = depth;
                 self.name_start_offset = name_start_offset;
@@ -66,6 +66,8 @@ pub fn DTB(comptime config: DTBConfig) type {
                 self.property_indices_end = 0;
             }
         };
+
+        const null_index: u32 = std.math.maxInt(u32);
 
         pub const Property = extern struct {
             name_start_offset: u32,
@@ -124,7 +126,7 @@ pub fn DTB(comptime config: DTBConfig) type {
                 self.raw_bytes[@intCast(abs_strings_start)..@intCast(abs_strings_end)];
 
             var current_token_offset: u32 = 0;
-            var current_node_index: ?u32 = null;
+            var current_node_index: u32 = null_index;
             var current_depth: u32 = 0;
             while (current_token_offset < dt_struct_size) {
                 current_token_offset = std.mem.alignForward(u32, current_token_offset, 4);
@@ -178,10 +180,10 @@ pub fn DTB(comptime config: DTBConfig) type {
                         current_depth += 1;
                     },
                     .end_node => {
-                        if (current_node_index == null) {
+                        if (current_node_index == null_index) {
                             return FDT.Error.UnendedNodeExist;
                         }
-                        const current_node = &self.nodes[@intCast(current_node_index.?)];
+                        const current_node = &self.nodes[@intCast(current_node_index)];
 
                         const next_token_start_offset =
                             current_token_offset + @sizeOf(FDT.Token); // already aligned
@@ -244,8 +246,10 @@ pub fn DTB(comptime config: DTBConfig) type {
                         }
 
                         const prop_depth: u32 = blk: {
-                            const i =
-                                current_node_index orelse return FDT.Error.OrphanProperty;
+                            if (current_node_index == null_index) {
+                                return FDT.Error.OrphanProperty;
+                            }
+                            const i = current_node_index;
                             break :blk self.nodes[i].depth;
                         };
                         _ = try self.createProperty(
@@ -277,7 +281,7 @@ pub fn DTB(comptime config: DTBConfig) type {
                             return FDT.Error.EndIsNotLastToken;
                         }
 
-                        if (current_node_index != null) {
+                        if (current_node_index != null_index) {
                             return FDT.Error.UnendedNodeExist;
                         }
 
@@ -426,7 +430,7 @@ pub fn DTB(comptime config: DTBConfig) type {
             depth: u32,
             name_start_offset: u32,
             name_end_offset: u32,
-            parent_index: ?u32,
+            parent_index: u32,
         ) DTBError!u32 {
             if (depth >= config.node_depth_array.len) {
                 return DTBError.OOM;
@@ -454,8 +458,8 @@ pub fn DTB(comptime config: DTBConfig) type {
                 parent_index,
             );
 
-            if (parent_index) |par_idx| {
-                const parent = &self.nodes[par_idx];
+            if (parent_index != null_index) {
+                const parent = &self.nodes[parent_index];
                 if (parent.child_indices_end == parent.child_indices_start) { // first child
                     parent.child_indices_start = new_node_index;
                     parent.child_indices_end = new_node_index + 1;
