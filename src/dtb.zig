@@ -25,7 +25,7 @@ pub fn DTB(comptime config: DTBConfig) type {
 
     comptime std.debug.assert(config.node_depth_array.len == config.property_depth_array.len);
 
-    return struct {
+    return extern struct {
         raw_bytes: [*]const u8,
 
         properties: [getPropertiesLen()]Property,
